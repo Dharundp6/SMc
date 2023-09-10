@@ -4,67 +4,71 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract MicroInvestmentPlatform is Ownable {
-    IERC20 public token;  
-    address public projectOwner;  
+contract GreenSustainYieldBond is Ownable {
+    string public name = "GreenSustain Yield Bond";
+    string public symbol = "GSYB";
+    uint8 public decimals = 18;
+    uint256 public totalSupply;
+    
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    mapping(address => uint256) public bondBalance;
 
-    struct SustainableProject {
-        uint256 goalAmount;      
-        uint256 currentAmount;   
-        bool isActive;          
-        mapping(address => uint256) investments; // Track individual investments
+    IERC20 public paymentToken; // The ERC20 token used for investments
+
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    event BondIssued(address indexed investor, uint256 value);
+    event BondTransferred(address indexed from, address indexed to, uint256 value);
+
+    constructor(address _paymentTokenAddress) {
+        paymentToken = IERC20(_paymentTokenAddress);
     }
 
-    mapping(uint256 => SustainableProject) public projects;
-    uint256 public projectCount;  
-
-    event ProjectCreated(uint256 indexed projectId, uint256 goalAmount);
-    event InvestmentMade(uint256 indexed projectId, address indexed investor, uint256 amount);
-    event ProjectFunded(uint256 indexed projectId);
-    event FundsWithdrawn(uint256 indexed projectId, uint256 amount);
-
-    constructor(address _tokenAddress) {
-        token = IERC20(_tokenAddress);
-        projectOwner = msg.sender;
+    function approve(address _spender, uint256 _value) public returns (bool success) {
+        allowance[msg.sender][_spender] = _value;
+        emit Approval(msg.sender, _spender, _value);
+        return true;
     }
 
-    function createProject(uint256 _goalAmount) external onlyOwner {
-        uint256 projectId = projectCount++;
-        projects[projectId] = SustainableProject(_goalAmount, 0, true);
-        emit ProjectCreated(projectId, _goalAmount);
-    }
-
-    function invest(uint256 _projectId, uint256 _amount) external {
-        require(projects[_projectId].isActive, "Project is not active");
-        require(_amount > 0, "Investment amount must be greater than 0");
+    function transfer(address _to, uint256 _value) public returns (bool success) {
+        require(_to != address(0), "Invalid recipient address");
+        require(balanceOf[msg.sender] >= _value, "Insufficient balance");
         
-        uint256 remainingAmount = projects[_projectId].goalAmount - projects[_projectId].currentAmount;
-        uint256 actualInvestment = (_amount <= remainingAmount) ? _amount : remainingAmount;
-        
-        projects[_projectId].currentAmount += actualInvestment;
-        projects[_projectId].investments[msg.sender] += actualInvestment;
-        token.transferFrom(msg.sender, address(this), actualInvestment);
-        
-        emit InvestmentMade(_projectId, msg.sender, actualInvestment);
-
-        if (projects[_projectId].currentAmount == projects[_projectId].goalAmount) {
-            projects[_projectId].isActive = false;
-            emit ProjectFunded(_projectId);
-        }
+        balanceOf[msg.sender] -= _value;
+        balanceOf[_to] += _value;
+        emit Transfer(msg.sender, _to, _value);
+        return true;
     }
 
-    function withdrawFunds(uint256 _projectId) external onlyOwner {
-        require(!projects[_projectId].isActive, "Project is still active");
-        uint256 amountToWithdraw = projects[_projectId].currentAmount;
-        require(amountToWithdraw > 0, "No funds to withdraw");
+    function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {
+        require(_from != address(0), "Invalid sender address");
+        require(_to != address(0), "Invalid recipient address");
+        require(balanceOf[_from] >= _value, "Insufficient balance");
+        require(allowance[_from][msg.sender] >= _value, "Allowance exceeded");
         
-        projects[_projectId].currentAmount = 0;
-        token.transfer(projectOwner, amountToWithdraw);
-        emit FundsWithdrawn(_projectId, amountToWithdraw);
+        balanceOf[_from] -= _value;
+        balanceOf[_to] += _value;
+        allowance[_from][msg.sender] -= _value;
+        emit Transfer(_from, _to, _value);
+        return true;
     }
 
-    // Function to check an individual's investment in a project
-    function getInvestment(uint256 _projectId, address _investor) external view returns (uint256) {
-        return projects[_projectId].investments[_investor];
+    function issueBond(uint256 _amount) public {
+        require(_amount > 0, "Invalid bond amount");
+        require(paymentToken.transferFrom(msg.sender, address(this), _amount), "Bond issuance failed");
+        
+        bondBalance[msg.sender] += _amount;
+        totalSupply += _amount;
+        emit BondIssued(msg.sender, _amount);
+    }
+
+    function transferBond(address _to, uint256 _amount) public {
+        require(_to != address(0), "Invalid recipient address");
+        require(bondBalance[msg.sender] >= _amount, "Insufficient bond balance");
+        
+        bondBalance[msg.sender] -= _amount;
+        bondBalance[_to] += _amount;
+        emit BondTransferred(msg.sender, _to, _amount);
     }
 }
